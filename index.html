@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trail Making Test</title>
+  <style>
+    canvas {
+      border: 1px solid black;
+      cursor: crosshair;
+    }
+    .info {
+      margin: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="info">
+    <button id="startBtn">スタート</button>
+    <span id="timer">時間: 0秒</span>
+  </div>
+  <canvas id="testCanvas" width="1000" height="800"></canvas>
+
+  <script>
+    // スクリプト開始前に必要な変数を定義
+    let isTestActive = false;  // テスト中かどうかを管理
+    let points = [];
+    let currentPoint = 0;
+    let startTime;
+    let interval;
+    let isDrawing = false;
+    let lastPosition = null;
+
+    // DOMが読み込まれた後にスクリプトを実行
+    document.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('testCanvas');
+      const ctx = canvas.getContext('2d');
+      const startBtn = document.getElementById('startBtn');
+      const timerSpan = document.getElementById('timer');
+
+      // ランダムな点を生成
+      function generatePoints() {
+        const generatedPoints = [];
+        while (generatedPoints.length < 25) {
+          const x = Math.random() * (canvas.width - 2 * 20) + 20;
+          const y = Math.random() * (canvas.height - 2 * 20) + 20;
+
+          const overlapping = generatedPoints.some(
+            (point) => Math.sqrt((x - point.x) ** 2 + (y - point.y) ** 2) < 60
+          );
+
+          if (!overlapping) {
+            generatedPoints.push({ x, y, label: (generatedPoints.length + 1).toString(), passed: false });
+          }
+        }
+        return generatedPoints;
+      }
+
+      // 点の描画
+      function drawPoints() {
+        points.forEach((point) => {
+          const image = new Image();
+          image.src = point.passed ? 'img2.png' : 'img1.png'; // 通過前後で異なる画像を指定
+
+          image.onload = () => {
+            ctx.drawImage(image, point.x - 30, point.y - 30, 60, 60); // サイズを変更
+            ctx.fillStyle = 'black';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '24px Arial'; // フォントサイズを指定
+            ctx.fillText(point.label, point.x, point.y);
+          };
+        });
+      }
+
+      // 線の描画
+      function drawLine(from, to) {
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // 点が通過されたかチェック
+      function checkPointPass(x, y) {
+        if (!isTestActive) return; // テストが終了していれば処理しない
+
+        const point = points[currentPoint];
+        if (!point) return; // 現在のポイントが無効な場合は処理しない
+
+        const distance = Math.sqrt((x - point.x) ** 2 + (y - point.y) ** 2);
+
+        if (distance < 20 && !point.passed) {
+          point.passed = true;
+          currentPoint++;
+
+          // 最後のポイントが通過された場合
+          if (currentPoint >= points.length) {
+            // 最後のポイントの色を変更
+            drawPoints(); // 最後のポイントを描画
+            setTimeout(completeTest, 500); // 0.5秒後にテスト完了処理を呼び出す
+          } else {
+            drawPoints(); // 次のターゲットを描画
+          }
+        }
+      }
+
+      // フリーハンド描画開始
+      canvas.addEventListener('mousedown', (e) => {
+        if (!isTestActive) return;
+        isDrawing = true;
+        const { offsetX, offsetY } = e;
+        lastPosition = { x: offsetX, y: offsetY };
+      });
+
+      // フリーハンド描画中
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isTestActive || !isDrawing) return;
+        const { offsetX, offsetY } = e;
+
+        // 線を描画
+        if (lastPosition) {
+          drawLine(lastPosition, { x: offsetX, y: offsetY });
+        }
+
+        // 点の判定
+        checkPointPass(offsetX, offsetY);
+
+        lastPosition = { x: offsetX, y: offsetY };
+      });
+
+      // フリーハンド描画終了
+      canvas.addEventListener('mouseup', () => {
+        if (!isTestActive) return;
+        isDrawing = false;
+        lastPosition = null;
+      });
+
+      // テストを開始
+      function startTest() {
+        isTestActive = true;
+        points = generatePoints(); // 点の生成
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // キャンバスをクリア
+        drawPoints(); // 点を描画
+        currentPoint = 0; // 現在のポイントをリセット
+        startTime = Date.now();
+
+        interval = setInterval(() => {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          timerSpan.textContent = `時間: ${elapsed}秒`;
+        }, 100);
+      }
+
+      // テスト完了処理
+      function completeTest() {
+        isTestActive = false;
+        clearInterval(interval);
+        alert(`Test complete! 時間: ${(Date.now() - startTime) / 1000}秒`);
+      }
+
+      // 「Start Test」ボタンのクリックイベント
+      startBtn.addEventListener('click', startTest);
+    });
+  </script>
+</body>
+</html>
