@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ジャンプゲームと表情認識</title>
+    <style>
+        @font-face {
+  font-family: 'MyFont';
+  src: url('misaki_gothic_2nd.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+        body {
+            font-family:'MyFont', Arial, sans-serif;
+         text-align: center; overflow-y: auto; 
+        
+        
+        }
+        canvas { display: block; margin: auto; }
+        .center-button {
+            display: block;
+            margin: auto;
+        }
+        /* facial_index のスタイルを追加 */
+        #video-container {
+            position: relative; /* 相対位置を設定 */
+            margin: 20px;
+        }
+        #video {
+            display: none; /* Webカメラ映像を非表示にする */
+        }
+        #face-canvas {
+            position: absolute; /* 絶対位置を設定 */
+            top: 0; /* 上端に配置 */
+            left: 0; /* 左端に配置 */
+            display: block; /* 顔キャンバスを表示 */
+            margin: auto; /* 中央に配置 */
+        }
+        #data-display {
+            display: none; /* 初期状態で非表示 */
+        }
+        #start-button {
+            padding: 15px 30px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1.2em;
+            margin: 20px;
+            transition: background 0.3s;
+        }
+        #start-button:hover {
+            background: #45a049;
+        }
+        .emotion-item {
+            margin: 5px 0;
+            padding: 8px;
+            background: #f8f8f8;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .emotion-label {
+            font-weight: bold;
+            color: #333;
+        }
+        .emotion-value {
+            color: #666;
+        }
+        /* 追加するメッセージスタイル */
+        #game-over-message, #goal-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4em;
+            text-shadow: 2px 2px 4px black;
+            display: none;
+            z-index: 1000;
+        }
+        #game-over-message { color: #ff4444; }
+        #goal-message { color: #4CAF50; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.6.1/dist/face-api.min.js"></script>
+</head>
+<body>
+    <div id="game-over-message">あっちっち！ざんねん！</div>
+    <div id="goal-message">おめでとう！</div>
+    <h1>ほのおをよけて　おひめさまのところまでいこう</h1>
+    <button id="startButton">しゅっぱつ！</button>
+    <button id="retryButton" class="center-button" style="display: none;">もう1度</button>
+    <div id="emotion-display" style="position: absolute; top: 10px; left: 10px; color: black; font-size: 1.5em; display: none;"></div>
+    <div id="video-container" style="display: none;"> <!-- 初期は非表示 -->
+        <video id="video" width="640" height="480" autoplay></video>
+        <canvas id="face-canvas"></canvas>
+    </div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+    <div id="data-display" style="display: none;"></div> <!-- 初期は非表示 -->
+
+    <script>
+        // 音声要素の追加
+        const bgm = new Audio('bgm.wav');
+        const jumpSound = new Audio('jump.wav');
+        const clearSound = new Audio('clear.mp3');
+        const gameOverSound = new Audio('over.mp3');
+        bgm.loop = true; // BGMをループ再生設定
+
+        // facegame のスクリプト
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const startButton = document.getElementById("startButton");
+        const retryButton = document.getElementById("retryButton");
+        
+        // 画像の読み込み
+        const characterImage = new Image();
+        characterImage.src = 'character.png';
+        
+        const obstacleImage = new Image();
+        obstacleImage.src = 'obstacle.png';
+        
+        const goalImage = new Image();
+        goalImage.src = 'goal.png';
+
+        // ジャンプの高さと距離を設定
+        const jumpHeight = -1.7; // ジャンプの高さ
+        const normalSpeed = window.innerWidth * 0.001; // ウィンドウ幅に基づく通常の水平方向の移動速度
+        const jumpSpeed = 0.8; // 固定のジャンプ中の水平方向の移動速度
+
+        // キャラクターのサイズを設定
+        let player = { x: 0, y: 250, width: 100, height: 150, dy: 0, jumping: false };
+        let happyProbability = 0; // 追加する変数
+        let obstacles = [];
+        let initialObstacles = []; // 初期障害物を保持する変数
+        let goal = { x: window.innerWidth - 150, y: 250, width: 150, height: 150 };
+        let gameRunning = false;
+        let animationFrameId = null;
+        let countdown = 3;
+        let countdownInterval = null;
+        const countdownDisplay = document.createElement('div'); // 追加するカウントダウン表示要素
+        
+        function generateObstacles(storeInitial = false) {
+            obstacles = [];
+            const minDistance = 200;
+            const safeZone = 150;
+            const obstacleCount = Math.floor(window.innerWidth / 350);
+
+            for (let i = 0; i < obstacleCount; i++) {
+                let xPos;
+                let validPosition = false;
+                let attempts = 0;
+                
+                // ランダム配置試行（最大100回）
+                do {
+                    xPos = 100 + Math.random() * (window.innerWidth - safeZone - 200);
+                    validPosition = obstacles.every(obs => 
+                        Math.abs(obs.x - xPos) >= minDistance
+                    );
+                    attempts++;
+                } while (!validPosition && attempts < 100);
+
+                // 規定回数内に配置できない場合のデフォルト位置
+                if (!validPosition) {
+                    const spacing = (window.innerWidth - safeZone - 200) / obstacleCount;
+                    xPos = 100 + (i * spacing);
+                    xPos = Math.min(xPos, window.innerWidth - safeZone - 50);
+                }
+
+                obstacles.push({ 
+                    x: xPos, 
+                    y: 340, 
+                    width: 50, 
+                    height: 60 
+                });
+            }
+
+            if (storeInitial) {
+                initialObstacles = [...obstacles]; // 初期生成時のみ保存
+            }
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(characterImage, player.x, player.y, player.width, player.height); // キャラクターを描画
+            obstacles.forEach(obstacle => ctx.drawImage(obstacleImage, obstacle.x, obstacle.y, obstacle.width, obstacle.height)); // 障害物を描画
+            ctx.drawImage(goalImage, goal.x, goal.y, goal.width, goal.height); // ゴールを描画
+        }
+        
+        function update() {
+            if (!gameRunning) return;
+            
+            // 感情判定（happyが70%以上でジャンプ）
+            if (happyProbability > 0.7 && !player.jumping) {
+                triggerJump();
+            }
+
+            const speed = player.jumping ? jumpSpeed : normalSpeed;
+            player.x += speed;
+            
+            if (player.jumping) {
+                player.y += player.dy;
+                player.dy += 0.018;
+                if (player.y >= 250) { // yを250に調整
+                    player.y = 250;
+                    player.jumping = false;
+                }
+            }
+            obstacles.forEach(obstacle => {
+                // 10ピクセルの余裕を持たせた当たり判定
+                if (player.x + 15 < obstacle.x + obstacle.width - 15 && 
+                    player.x + player.width - 15 > obstacle.x + 15 &&
+                    player.y + 15 < obstacle.y + obstacle.height - 15 && 
+                    player.y + player.height - 15 > obstacle.y + 15) {
+                    endGame(true);
+                }
+            });
+            // ゴール判定も10ピクセル早く成功するように調整
+            if (player.x + player.width - 50 >= goal.x) {
+                endGame(false);
+            }
+            draw();
+            animationFrameId = requestAnimationFrame(update);
+        }
+        
+        // ジャンプトリガー用の関数を追加
+        function triggerJump() {
+            if (!player.jumping) {
+                player.jumping = true;
+                player.dy = jumpHeight;
+                jumpSound.currentTime = 0; // 音声を最初から再生
+                jumpSound.play();
+            }
+        }
+
+        // キーボード操作のイベントリスナーを修正
+        document.addEventListener("keydown", (e) => {
+            if (e.code === "Space") {
+                e.preventDefault();
+                triggerJump(); // 関数を呼び出すように変更
+            }
+        });
+        
+        // 初期化処理
+        generateObstacles(true); // 初期生成時に保存
+        canvas.width = window.innerWidth;
+
+        // 画像が読み込まれた後に描画
+        characterImage.onload = () => {
+            obstacleImage.onload = () => {
+                goalImage.onload = () => {
+                    draw(); // 即時描画
+                };
+            };
+        };
+        
+        // スタートボタン処理の修正（BGM再生追加）
+        startButton.addEventListener("click", async (e) => {
+            e.preventDefault();
+            if (gameRunning) return;
+
+            // カウントダウン表示のスタイル設定
+            countdownDisplay.style.position = 'fixed';
+            countdownDisplay.style.top = '50%';
+            countdownDisplay.style.left = '50%';
+            countdownDisplay.style.transform = 'translate(-50%, -50%)';
+            countdownDisplay.style.fontSize = '100px';
+            countdownDisplay.style.color = 'red';
+            countdownDisplay.style.textShadow = '2px 2px 4px black';
+            document.body.appendChild(countdownDisplay);
+
+            // ゲーム要素の初期化（キャラクター位置、障害物など）
+            player.x = 0;
+            player.y = 250;
+            player.dy = 0;
+            player.jumping = false;
+            obstacles = [...initialObstacles];
+            draw(); // 初期状態を描画
+
+            // facial_index の初期化
+            document.getElementById("video-container").style.display = "block";
+            document.getElementById("data-display").style.display = "block";
+            await faceapi.nets.tinyFaceDetector.loadFromUri('models');
+            await faceapi.nets.faceExpressionNet.loadFromUri('models');
+            await startVideo();
+
+            // カウントダウン開始
+            countdown = 3;
+            countdownDisplay.textContent = countdown;
+            startButton.disabled = true;
+
+            countdownInterval = setInterval(() => {
+                countdown--;
+                countdownDisplay.textContent = countdown > 0 ? countdown : 'Start!';
+                
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownDisplay.remove();
+                    gameRunning = true;
+                    startButton.disabled = false;
+                    bgm.play(); // BGM再生開始
+                    update();
+                }
+            }, 1000);
+        });
+
+        // ゲーム終了処理の修正（音声制御追加）
+        function endGame(isGameOver) {
+            bgm.pause(); // BGM停止
+            gameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            startButton.style.display = 'none';
+            retryButton.style.display = 'block';
+            
+            // アラートの代わりにメッセージ表示
+            if (isGameOver) {
+                document.getElementById('game-over-message').style.display = 'block';
+                gameOverSound.currentTime = 0;
+                gameOverSound.play();
+            } else {
+                document.getElementById('goal-message').style.display = 'block';
+                clearSound.currentTime = 0;
+                clearSound.play();
+            }
+            
+            if (countdownDisplay) countdownDisplay.remove();
+            if (countdownInterval) clearInterval(countdownInterval);
+            document.getElementById("video-container").style.display = "none";
+            document.getElementById("data-display").style.display = "none";
+        }
+
+        // リトライボタンの処理修正（音声停止追加）
+        retryButton.addEventListener("click", () => {
+            bgm.pause();
+            gameOverSound.pause();
+            clearSound.pause();
+            // メッセージを非表示にしてページ再読み込み
+            document.getElementById('game-over-message').style.display = 'none';
+            document.getElementById('goal-message').style.display = 'none';
+            location.reload();
+        });
+
+        // facial_index のスクリプト
+        const video = document.getElementById('video');
+        const faceCanvas = document.getElementById('face-canvas');
+        const dataDisplay = document.getElementById('data-display');
+        const faceCtx = faceCanvas.getContext('2d');
+
+        let isDetecting = false;
+
+        // カメラ起動
+        async function startVideo() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+                video.srcObject = stream;
+                await video.play();
+                faceCanvas.width = video.videoWidth;
+                faceCanvas.height = video.videoHeight;
+                isDetecting = true;
+                detectFaces();
+            } catch (error) {
+                console.error("カメラ起動エラー:", error);
+            }
+        }
+
+        // 表情データ表示
+        function updateDataDisplay(expressions) {
+            happyProbability = expressions.happy; // 確率を保持
+            const dominantEmotion = Object.keys(expressions).reduce((a, b) => expressions[a] > expressions[b] ? a : b);
+            const highestProbability = (expressions[dominantEmotion] * 100).toFixed(1);
+            
+            const emotionDisplay = document.getElementById('emotion-display');
+            emotionDisplay.textContent = `${dominantEmotion}: ${highestProbability}%`;
+        }
+
+        // 顔認識処理
+        async function detectFaces() {
+            if (!isDetecting) return;
+
+            const detections = await faceapi.detectAllFaces(video, 
+                new faceapi.TinyFaceDetectorOptions()
+            ).withFaceExpressions();
+
+            faceCtx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+
+            if (detections && detections.length > 0) {
+                const detection = detections[0];
+                const box = detection.detection.box;
+
+                // 顔の周囲に四角を描画
+                faceCtx.strokeStyle = '#FF0000';
+                faceCtx.lineWidth = 2;
+                faceCtx.strokeRect(
+                    box.x, 
+                    box.y, 
+                    box.width, 
+                    box.height
+                );
+
+                // 顔部分を切り抜いて描画
+                const { x, y, width, height } = box;
+                faceCanvas.width = width; // faceCanvasの幅を設定
+                faceCanvas.height = height; // faceCanvasの高さを設定
+                faceCtx.drawImage(video, x, y, width, height, 0, 0, width, height); // 顔部分を描画
+
+                // 表情データを更新
+                updateDataDisplay(detection.expressions);
+            }
+
+            requestAnimationFrame(detectFaces);
+        }
+    </script>
+</body>
+</html>
