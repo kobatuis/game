@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>表情シューティングゲーム </title>
+  <style>
+            @font-face {
+  font-family: 'MyFont';
+  src: url('misaki_gothic_2nd.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+    /* 共通スタイル */
+    body {
+        font-family:'MyFont', Arial, sans-serif;
+         margin: 0; background: black; overflow: hidden; }
+    canvas { display: block; margin: 0 auto; background: #111; }
+    
+    /* faceshooting2.html のスタイル（デフォルト） */
+    #facePreview {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      border: 2px solid white;
+    }
+    
+    .controls1, .controls2 {
+      display: none;
+    }
+    .control-btn {
+      width: 60px;
+      height: 60px;
+      background: white;
+      border: none;
+      border-radius: 30px;
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      user-select: none;
+    }
+    #info {
+      position: absolute;
+      top: 100px;
+      left: 10px;
+      margin: 20px;
+      max-width: 400px;
+      color: white;
+      z-index: 1000;
+    }
+#enemiesDefeatedDisplay {
+      position: absolute;
+      top:530px;
+      width: 100%;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 1000;
+    }
+
+
+
+    #startScreen {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 1000;
+    }
+    #startBtn {
+      font-size: 28px;
+      padding: 12px 24px;
+      margin-top: 20px;
+      cursor: pointer;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 10px;
+    }
+    
+    /* shootdemo.html のスタイル（デモモード用） */
+    a.button, #switchToGameBtn, #showDemoBtn {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: white;
+      color: black;
+      text-decoration: none;
+      font-weight: bold;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    
+    /* デモモード時のレイアウト変更 */
+    .demo-mode-body {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      align-items: flex-start;
+      margin-top: 50px;
+    }
+    
+    .demo-mode-body #facePreview {
+        position: static;
+        margin-right: 20px;
+    }
+    
+    .demo-mode-body #info {
+        position: static;
+        margin-left: 50px;
+    }
+    
+    .demo-mode-body #gameCanvas {
+        margin: 0;
+    }
+    
+    .demo-mode-body #startScreen, 
+    .demo-mode-body #restartScreen {
+        display: none !important;
+    }
+    
+    .demo-mode-body #gameTitle, 
+    .demo-mode-body #gameInfoContent, 
+    .demo-mode-body #demoTitle, 
+    .demo-mode-body #demoInfoContent {
+        display: block !important;
+    }
+  </style>
+</head>
+<body id="mainBody">
+
+<div id="restartScreen" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); color:white; flex-direction:column; align-items:center; justify-content:center; z-index:500;">
+  <div id="endMessage" style="font-size: 28px; margin-bottom: 20px;"></div>
+  <button onclick="restartGame()" style="font-size: 24px; padding: 10px 20px;">もう一度！</button>
+  <button onclick="switchToDemoMode()" style="font-size: 24px; padding: 10px 20px;">練習モードへ</button>
+</div>
+
+<div id="startScreen">
+  <div id="startScreenTitle">表情シューティング</div>
+  <button id="startBtn">ゲームスタート</button>
+  <button id="showDemoBtn">練習モードへ</button>
+</div>
+
+<div id="info">
+  <div id="demoTitle" style="display:none;">
+</div>
+  <div id="gameTitle">
+    <h2>そうさほうほう</h2>
+    <h1><span style="font-size:2em;">😄</span>:ビーム</h1>
+    <h1><span style="font-size:2em;">😠</span>:強ビーム</h1>
+    <h2>ほかの表情でも…？</h2>
+    <h2 id="movementInfo">マウスで左右にいどう</h2>
+  </div>
+  <div id="instructions">
+</div>
+  <button id="switchToGameBtn" style="display:none;" class="button" onclick="switchToGameMode()">▶ プレイする</button>
+</div>
+
+<canvas id="gameCanvas" width="360" height="480"></canvas>
+<canvas id="facePreview" width="320" height="240"></canvas>
+  <div id="enemiesDefeatedDisplay" style="font-size: 36px; color: white;"></div>
+<script src="tf.min.js"></script>
+<script src="face-api.min.js"></script>
+<script>
+let isDemoMode = false;
+let mouseX = 0; // マウスのX座標を保存
+
+const mainBody = document.getElementById("mainBody");
+const restartScreen = document.getElementById("restartScreen");
+const startScreen = document.getElementById("startScreen");
+const startBtn = document.getElementById("startBtn");
+const showDemoBtn = document.getElementById("showDemoBtn");
+const switchToGameBtn = document.getElementById("switchToGameBtn");
+const demoTitle = document.getElementById("demoTitle");
+const gameTitle = document.getElementById("gameTitle");
+const instructionsList = document.getElementById("instructions").querySelector("ul");
+const movementInfo = document.getElementById("movementInfo");
+const enemiesDefeatedDisplay = document.getElementById("enemiesDefeatedDisplay"); 
+
+function updateInstructions(isDemo) {
+    if (isDemo) {
+        demoTitle.style.display = 'block';
+        gameTitle.style.display = 'none';
+        switchToGameBtn.style.display = 'block';
+        movementInfo.textContent = '';
+    } else {
+        demoTitle.style.display = 'none';
+        gameTitle.style.display = 'block';
+        switchToGameBtn.style.display = 'none';
+        movementInfo.textContent = 'マウスで左右にいどう';
+    }
+}
+
+function switchToDemoMode() {
+    isDemoMode = true;
+     mainBody.classList.add('demo-mode-body');
+    updateInstructions(true);
+    startScreen.style.display = 'none';
+    restartScreen.style.display = 'none';
+
+    // Initialize demo state
+    enemies = [];
+    beams = [];
+    enemyBeams = [];
+    hp = 3;
+    superBeamCount = 3;
+    explosions = [];
+    gameOver = false;
+    gameClear = false;
+    player.x = WIDTH / 2 - 20;
+    sadInvincibleUntil = 0;
+    freezeEnemiesUntil = 0;
+    
+    spawnEnemies();
+    gameStarted = true; // Demo mode runs automatically
+    gameLoop();
+}
+
+function switchToGameMode() {
+    isDemoMode = false;
+    mainBody.classList.remove('demo-mode-body');
+    updateInstructions(false);
+    
+    // Reset game state variables
+    enemies = [];
+    beams = [];
+    enemyBeams = [];
+    hp = 3;
+    superBeamCount = 3;
+    explosions = [];
+    gameOver = false;
+    gameClear = false;
+    player.x = WIDTH / 2 - 20;
+    sadInvincibleUntil = 0;
+    freezeEnemiesUntil = 0;
+
+    // Show start screen and set gameStarted to false, waiting for user click
+    startScreen.style.display = 'flex';
+    restartScreen.style.display = 'none';
+    gameStarted = false; // ゲームスタートボタンが押されるまでプレイ開始しない
+}
+
+function restartGame() {
+  // ゲーム状態初期化
+  enemies = [];
+  beams = [];
+  enemyBeams = [];
+  hp = 3;
+  superBeamCount = 3;
+  explosions = [];
+  gameOver = false;
+  gameClear = false;
+  player.x = WIDTH / 2 - 20;
+  sadInvincibleUntil = 0;
+  freezeEnemiesUntil = 0;
+  document.getElementById("restartScreen").style.display = "none";
+  spawnEnemies();
+  gameStarted = true;
+  gameLoop();
+}
+
+let canvas = document.getElementById("gameCanvas");
+let ctx = canvas.getContext("2d");
+let previewCanvas = document.getElementById("facePreview");
+let previewCtx = previewCanvas.getContext("2d");
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+
+
+const beamSound = new Audio("beam.wav");
+beamSound.volume = 0.3;
+const explosionSound = () => new Audio("expl.wav");
+explosionSound.volume = 0.7;
+const clearSound =  new Audio("clear.wav");
+
+
+let player = {
+  x: WIDTH / 2 - 20,
+  y: HEIGHT - 60,
+  width: 40,
+  height: 40,
+  speed: 2, // 自動移動の速さ
+  dir: 1    // 初期移動方向 (1:右, -1:左)
+};
+
+let explosionImg = new Image();
+explosionImg.src = "explosion.png";
+let explosions = [];
+let enemies = [];
+let beams = [];
+let enemyBeams = [];
+let isSmiling = false;
+let isAngry = false;
+let superBeamCount = 3;
+let lastShotTime = 0;
+let gameOver = false;
+let hp = 3;
+let neutralHoldTime = 0;
+let lastNeutralTime = 0;
+let gameClear = false;
+let gameStarted = false;
+let sadInvincibleUntil = 0;
+let freezeEnemiesUntil = 0;
+let enemiesDefeatedCount = 0;
+let enemyImg = new Image();
+let playerImg = new Image();
+enemyImg.src = "enemy.png";
+playerImg.src = "jiki.png";
+
+
+function shootBeam() {
+  let now = Date.now();
+  if (now - lastShotTime > 800) {
+    if (isAngry && superBeamCount > 0) {
+      // 強ビーム（太く・広い範囲）
+      beams.push({ x: player.x + player.width / 2 - 10, y: player.y, width: 80, super: true });
+      if (!isDemoMode) {
+          superBeamCount--;
+      }
+    } else {
+      // 通常ビーム
+      beams.push({ x: player.x + player.width / 2, y: player.y, width: 4, super: false });
+    }
+        beamSound.currentTime = 0;
+        beamSound.play();
+    lastShotTime = now;
+  }
+}
+
+function drawExplosions() {
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    const ex = explosions[i];
+    ctx.save();
+    if (ex.flip) {
+      ctx.translate(ex.x + ex.size / 2, ex.y + ex.size / 2);
+      ctx.scale(-1, 1);
+      ctx.translate(-ex.size / 2, -ex.size / 2);
+    } else {
+      ctx.translate(ex.x, ex.y);
+    }
+    ctx.drawImage(explosionImg, 0, 0, ex.size, ex.size);
+    ctx.restore();
+    ex.frame++;
+    if (ex.frame % 6 === 0) ex.flip = !ex.flip;
+    ex.count--;
+    if (ex.count <= 0) explosions.splice(i, 1);
+  }
+}
+
+function addExplosion(x, y, size = 40) {
+  explosions.push({ x, y, size, count: 24, frame: 0, flip: false });
+}
+
+function spawnEnemies() {
+  enemies = [];
+  for (let i = 0; i < 10; i++) {
+    enemies.push({ x: i * 30 + 30, y: 50, dx: 1 });
+  }
+}
+
+function drawPlayer() {
+  ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
+  if (Date.now() < sadInvincibleUntil) {
+    ctx.strokeStyle = "aqua";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.width, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawEnemies() {
+  enemies.forEach(enemy => {
+    if (Date.now() < freezeEnemiesUntil) {
+      ctx.save();
+      ctx.filter = "invert(1)";
+      ctx.drawImage(enemyImg, enemy.x, enemy.y, 30, 30);
+      ctx.restore();
+    } else {
+      ctx.drawImage(enemyImg, enemy.x, enemy.y, 30, 30);
+    }
+  });
+}
+
+function drawBeams() {
+  beams.forEach(b => {
+    ctx.fillStyle = b.super ? "orange" : "cyan";
+    ctx.fillRect(b.x, b.y, b.width, 10);
+  });
+
+  if (!isDemoMode) {
+      ctx.fillStyle = "red";
+      enemyBeams.forEach(b => {
+        ctx.fillRect(b.x, b.y, 4, 10);
+      });
+  }
+}
+
+
+function updateBeams() {
+  beams.forEach(b => b.y -= 5);
+  beams = beams.filter(b => b.y > 0);
+
+  // Enemy beams update (only in game mode)
+  if (!isDemoMode) {
+    enemyBeams.forEach(b => b.y += 3);
+    enemyBeams = enemyBeams.filter(b => b.y < HEIGHT);
+  }
+
+  // Collision logic
+  for (let j = beams.length - 1; j >= 0; j--) {
+    let b = beams[j];
+    let hit = false;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      let e = enemies[i];
+      if (
+        b.x < e.x + 40 &&
+        b.x + b.width > e.x &&
+        b.y < e.y + 40 &&
+        b.y + 10 > e.y
+      ) {
+            addExplosion(e.x, e.y);
+            explosionSound().play();
+        enemies.splice(i, 1);
+        enemiesDefeatedCount++; 
+        updateEnemiesDefeatedDisplay(); // <-- 敵を倒すたびに表示を更新
+        hit = true;
+      }
+    }
+    if (hit) {
+      beams.splice(j, 1);
+    }
+  }
+
+  // Handle enemy beams hit (only in game mode)
+  if (!isDemoMode) {
+    for (let i = enemyBeams.length - 1; i >= 0; i--) {
+      const b = enemyBeams[i];
+      if (Date.now() < sadInvincibleUntil) continue;
+      if (
+        b.x > player.x &&
+        b.x < player.x + player.width &&
+        b.y > player.y &&
+        b.y < player.y + player.height
+      ) {
+        addExplosion(player.x, player.y);
+        explosionSound().play();
+        hp--;
+        enemyBeams.splice(i, 1);
+        if (hp <= 0) gameOver = true;
+      }
+    }
+  }
+}
+
+
+function updateEnemies() {
+  if (Date.now() < freezeEnemiesUntil) return;
+  enemies.forEach(e => {
+    e.x += e.dx;
+    if (e.x <= 0 || e.x >= WIDTH - 40) {
+      e.dx *= -1;
+      // Added condition: enemies only move in Y direction if not in demo mode
+      if (!isDemoMode) {
+          e.y += 20;
+      }
+    }
+    
+    // Enemy shooting and player collision only in Game Mode
+    if (!isDemoMode) {
+      if (Math.random() < 0.0025) {
+        enemyBeams.push({ x: e.x + 20, y: e.y + 40 });
+      }
+      
+      // Collision with player
+      if (
+        e.x < player.x + player.width &&
+        e.x + 40 > player.x &&
+        e.y < player.y + player.height &&
+        e.y + 40 > player.y
+      ) {
+        addExplosion(player.x, player.y);
+        explosionSound().play();
+        hp--;
+        if (hp <= 0) gameOver = true;
+      }
+    }
+  });
+}
+
+function drawHearts() {
+    if (isDemoMode) return;
+    ctx.fillStyle = "white";
+    ctx.font = "14px sans-serif";
+    ctx.fillText("LIFE", 300, 15);
+    for (let i = 0; i < hp; i++) {
+      ctx.fillStyle = 'red';
+      ctx.fillRect(300 + i * 12, 20, 10, 10);
+    }
+}
+
+function drawSuperBeamCount() {
+    if (isDemoMode) return;
+    ctx.fillStyle = "white";
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`怒りビーム残り: ${superBeamCount}`, 10, 20);
+}
+
+function updateEnemiesDefeatedDisplay() {
+    if (enemiesDefeatedDisplay) {
+        enemiesDefeatedDisplay.textContent = `やっつけた　かず: ${enemiesDefeatedCount}`;
+    }
+}
+
+function gameLoop() {
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+  // If not in demo mode AND game is not started, just request the next frame and return.
+  if (!isDemoMode && !gameStarted) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  // プレイヤーの移動ロジック
+  if (isDemoMode) {
+    // デモモードでは自動移動
+    player.x += player.dir * player.speed;
+    // 端に到達したら方向を反転
+    if (player.x < 0 || player.x + player.width > WIDTH) {
+      player.dir *= -1;
+    }
+  } else {
+    // ゲームモードではマウスで操作
+    player.x = mouseX - player.width / 2; 
+    // キャンバスの端での制限は引き続き適用
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.width > WIDTH) player.x = WIDTH - player.width;
+  }
+ 
+  drawPlayer();
+  drawExplosions();
+
+  // Check for Game Clear or Game Over conditions only in Game Mode
+  if (!isDemoMode) {
+      if (enemies.length === 0) {
+        document.getElementById("endMessage").innerText = "やった！おめでとう！";
+        document.getElementById("restartScreen").style.display = "flex";
+        clearSound.play();
+        drawSuperBeamCount();
+        drawHearts();
+        return;
+      }
+      if (gameOver) {
+        document.getElementById("endMessage").innerText = "ゲームオーバー！";
+        document.getElementById("restartScreen").style.display = "flex";
+        drawSuperBeamCount();
+        drawHearts();
+        return;
+      }
+  } else {
+      // In Demo Mode, respawn enemies when all are cleared
+      if (enemies.length === 0) {
+          spawnEnemies();
+      }
+  }
+
+  drawEnemies();
+  drawBeams();
+  updateBeams();
+  updateEnemies();
+  drawSuperBeamCount();
+  drawHearts();
+
+  // Shooting logic based on expression (same for both modes)
+  if (isSmiling || isAngry) shootBeam(); 
+
+  requestAnimationFrame(gameLoop);
+}
+
+// マウス移動イベントリスナー
+document.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+});
+
+
+// Event Listeners for Game Mode
+startBtn.addEventListener("click", () => {
+  document.getElementById("startScreen").style.display = "none";
+  gameStarted = true;
+  spawnEnemies();
+  gameLoop();
+});
+
+// Switch to demo mode button listener
+showDemoBtn.addEventListener("click", switchToDemoMode);
+switchToGameBtn.addEventListener("click", switchToGameMode);
+
+async function initFace() {
+  await faceapi.nets.tinyFaceDetector.loadFromUri("./models");
+  await faceapi.nets.faceExpressionNet.loadFromUri("./models");
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.width = 200; // この値はHTMLのサイズ設定に影響しますが、実際の映像解像度ではない可能性がある
+  video.height = 150; // この値も同様
+  video.style.display = "none";
+  document.body.appendChild(video);
+
+  const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+  video.srcObject = stream;
+
+  video.onloadedmetadata = () => {
+    // スケーリング係数を計算
+    // video.width/heightではなく、実際の映像の解像度 (video.videoWidth/Height) を使用
+    const scaleX = previewCanvas.width / video.videoWidth;
+    const scaleY = previewCanvas.height / video.videoHeight;
+
+    setInterval(async () => {
+      const detectionsAll = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
+      let detections = null;
+      if (detectionsAll.length > 0) {
+        const centerX = video.videoWidth / 2;
+        const centerY = video.videoHeight / 2;
+        detections = detectionsAll.reduce((closest, det) => {
+          const box = det.detection.box;
+          const cx = box.x + box.width / 2;
+          const cy = box.y + box.height / 2;
+          const dist = Math.hypot(cx - centerX, cy - centerY);
+          return dist < closest.dist ? { det, dist } : closest;
+        }, { det: detectionsAll[0], dist: Infinity }).det;
+      }
+
+      // Webカメラ映像全体をプレビューキャンバスに描画 (キャンバスのサイズに合わせて引き伸ばす)
+      previewCtx.drawImage(video, 0, 0, previewCanvas.width, previewCanvas.height);
+
+      if (detections) {
+        const box = detections.detection.box;
+        isSmiling = detections.expressions.happy > 0.8;
+        isAngry = detections.expressions.angry > 0.8;
+        const now = Date.now();
+
+        // HP Recovery (Neutral) - only in faceshooting2.html
+        if (!isDemoMode) {
+            if (detections.expressions.neutral > 0.85) {
+              if (lastNeutralTime !== 0 && now - lastNeutralTime < 300) {
+                neutralHoldTime += now - lastNeutralTime;
+              } else {
+                neutralHoldTime = 0;
+              }
+              // HP recovery logic
+              if (neutralHoldTime > 1500 && hp < 5) {
+                hp++;
+                neutralHoldTime = 0;
+              }
+              lastNeutralTime = now;
+            } else {
+                neutralHoldTime = 0;
+                lastNeutralTime = 0;
+            }
+        }
+
+        // Sad (Invincible Barrier)
+        const sadThreshold = isDemoMode ? 0.4 : 0.5;
+        const sadHold = isDemoMode ? 600 : 300;
+
+        if (detections.expressions.sad > sadThreshold) {
+          if (!window.sadHoldTime) window.sadHoldTime = 0;
+          window.sadHoldTime += 100;
+          if (window.sadHoldTime > sadHold && Date.now() > sadInvincibleUntil) {
+            sadInvincibleUntil = Date.now() + 3000;
+            window.sadHoldTime = 0;
+          }
+        } else {
+          window.sadHoldTime = 0;
+        }
+
+        // Surprised (Enemy Freeze)
+        if (detections.expressions.surprised > 0.9 && Date.now() > freezeEnemiesUntil) {
+          freezeEnemiesUntil = Date.now() + 2000;
+        }
+
+        // 顔が検出されたら赤枠で囲む
+        previewCtx.strokeStyle = "red";
+        previewCtx.lineWidth = 2;
+        // スケーリングされた座標とサイズで赤枠を描画
+        previewCtx.strokeRect(
+          box.x * scaleX,
+          box.y * scaleY,
+          box.width * scaleX,
+          box.height * scaleY
+        );
+      } else {
+        isSmiling = false;
+        isAngry = false;
+        sadInvincibleUntil = 0; // 無敵を解除
+      }
+    }, 100);
+  };
+}
+
+// Initialize the application: Start in demo mode by default
+window.onload = function() {
+    initFace();
+    switchToDemoMode(); // ページロード時にデモモードを起動
+};
+</script>
+</body>
+</html>
